@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     uuid-dev \
     zlib1g-dev \
     libssl-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build/qubic-core-lite
@@ -24,7 +25,7 @@ COPY . .
 RUN if [ -f build/src/Qubic ]; then \
       echo "Pre-built binary found, skipping build"; \
     else \
-      cd build || mkdir -p build && cd build \
+      mkdir -p build && cd build \
       && cmake .. \
           -D CMAKE_C_COMPILER=clang \
           -D CMAKE_CXX_COMPILER=clang++ \
