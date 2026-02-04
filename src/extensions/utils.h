@@ -38,6 +38,7 @@ static void print_wstr(const wchar_t* wstr, ...) {
     vprintf(utf8String.c_str(), args);
     va_end(args);
     printf("\n");
+    fflush(stdout);
 }
 
 // convert 4 wchar_t to a number
