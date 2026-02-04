@@ -82,6 +82,33 @@ def _compress_file_worker(
         "compressed_size": compressed_size,
     }
 
+
+def _extract_file_worker(
+    zip_path: str,
+    entry_name: str,
+    dest_dir: str,
+) -> dict:
+    """Extract a single file from a ZIP archive (thread-safe).
+
+    Each worker opens its own ZipFile handle so reads don't
+    conflict.  zlib decompression releases the GIL.
+    """
+    target = Path(dest_dir) / entry_name
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    file_size = 0
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        with zf.open(entry_name) as src, open(target, "wb") as dst:
+            while True:
+                chunk = src.read(_CHUNK_SIZE)
+                if not chunk:
+                    break
+                dst.write(chunk)
+                file_size += len(chunk)
+
+    return {"name": entry_name, "size": file_size}
+
+
 # Files the Qubic node needs per epoch
 CRITICAL_FILES = ["spectrum", "universe"]
 
@@ -183,10 +210,41 @@ class StateManager:
                 zip_path.unlink()
 
     def _extract_and_rename(self, zip_path: Path, epoch: int) -> None:
-        """Extract zip and rename files to match the epoch number."""
+        """Extract zip in parallel and rename files to match the epoch."""
         logger.info(f"Extracting {zip_path} to {self._data_dir}")
+
         with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(self._data_dir)
+            entries = [i.filename for i in zf.infolist() if not i.is_dir()]
+
+        workers = min(len(entries) or 1, os.cpu_count() or 4)
+        logger.info(
+            f"Extracting {len(entries)} files with {workers} workers"
+        )
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {}
+            for name in entries:
+                future = pool.submit(
+                    _extract_file_worker,
+                    str(zip_path),
+                    name,
+                    str(self._data_dir),
+                )
+                futures[future] = name
+
+            done_count = 0
+            for future in as_completed(futures):
+                done_count += 1
+                name = futures[future]
+                try:
+                    result = future.result()
+                    logger.debug(
+                        f"Extracted [{done_count}/{len(entries)}] "
+                        f"{name} ({result['size']} bytes)"
+                    )
+                except Exception as exc:
+                    logger.error(f"Failed to extract {name}: {exc}")
+                    raise
 
         # Rename files with .000 extension (or wrong epoch) to current epoch
         for path in self._data_dir.iterdir():
