@@ -63,7 +63,7 @@ class EpochService:
                     peers=data.get("peers", []),
                     min_version=min_ver,
                 )
-        except (aiohttp.ClientError, KeyError) as e:
+        except (aiohttp.ClientError, KeyError, TimeoutError) as e:
             logger.warning(f"Failed to get epoch info from API: {e}")
             raise
 
@@ -123,7 +123,7 @@ class EpochService:
                         checksum=data.get("checksum", ""),
                         size_bytes=data.get("size_bytes", 0),
                     )
-        except (aiohttp.ClientError, KeyError) as e:
+        except (aiohttp.ClientError, KeyError, TimeoutError) as e:
             logger.debug(f"Index lookup failed for epoch {epoch}: {e}")
 
         # --- Legacy: direct HEAD on ep{epoch}-full.zip --------------------
@@ -141,7 +141,7 @@ class EpochService:
                         url=zip_url,
                         size_bytes=size,
                     )
-        except aiohttp.ClientError:
+        except (aiohttp.ClientError, TimeoutError):
             pass
 
         return None

@@ -264,33 +264,36 @@ class Orchestrator:
 
         # Retry loop: try snapshot first, then epoch files
         while not self._shutdown_event.is_set():
-            # Try snapshot
-            logger.info("Checking snapshot service for available snapshots...")
-            snapshot_meta = (
-                await self._epoch_service.get_latest_snapshot_meta(epoch)
-            )
-            if snapshot_meta is not None:
-                logger.info(f"Snapshot available: {snapshot_meta.url}")
-                success = await self._state_manager.download_snapshot(
-                    snapshot_meta
+            try:
+                # Try snapshot
+                logger.info("Checking snapshot service for available snapshots...")
+                snapshot_meta = (
+                    await self._epoch_service.get_latest_snapshot_meta(epoch)
                 )
-                if success and self._state_manager.has_valid_state_files(
-                    epoch
-                ):
-                    logger.info("Snapshot downloaded and validated")
-                    return
-                logger.warning(
-                    "Snapshot download failed, trying epoch files"
-                )
+                if snapshot_meta is not None:
+                    logger.info(f"Snapshot available: {snapshot_meta.url}")
+                    success = await self._state_manager.download_snapshot(
+                        snapshot_meta
+                    )
+                    if success and self._state_manager.has_valid_state_files(
+                        epoch
+                    ):
+                        logger.info("Snapshot downloaded and validated")
+                        return
+                    logger.warning(
+                        "Snapshot download failed, trying epoch files"
+                    )
 
-            # Try epoch files
-            logger.info(f"Downloading epoch files from: {epoch_url}")
-            success = await self._state_manager.download_epoch_files(
-                epoch, epoch_url
-            )
-            if success and self._state_manager.has_valid_state_files(epoch):
-                logger.info("Epoch files downloaded and validated")
-                return
+                # Try epoch files
+                logger.info(f"Downloading epoch files from: {epoch_url}")
+                success = await self._state_manager.download_epoch_files(
+                    epoch, epoch_url
+                )
+                if success and self._state_manager.has_valid_state_files(epoch):
+                    logger.info("Epoch files downloaded and validated")
+                    return
+            except Exception as e:
+                logger.warning(f"Download attempt failed: {e}")
 
             logger.info(
                 f"Epoch {epoch} files not yet available locally or "

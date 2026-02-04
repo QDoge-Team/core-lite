@@ -1,0 +1,61 @@
+#cloud-config
+# Qubic Core Lite - Cloud Init for Ubuntu 24.04
+# Usage: pass this file as user-data when launching a VM
+#   - AWS:          --user-data file://cloud-init.yml
+#   - GCP:          --metadata-from-file user-data=cloud-init.yml
+#   - Azure:        --custom-data cloud-init.yml
+#   - DigitalOcean: --user-data "$(cat cloud-init.yml)"
+#   - Hetzner:      --user-data-from-file cloud-init.yml
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - ufw
+
+# Install Docker, configure firewall, start Qubic node
+runcmd:
+  - |
+    # Docker official install
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    . /etc/os-release
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
+    apt-get update
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+    # Start Qubic node
+    docker compose -f /opt/qubic/docker-compose.yml up -d
+
+write_files:
+  - path: /opt/qubic/docker-compose.yml
+    content: |
+      services:
+        core-lite:
+          image: qubiccore/lite:latest
+          container_name: core-lite
+          restart: unless-stopped
+          volumes:
+            - qubic-data:/qubic
+          environment:
+            QUBIC_LOG_LEVEL: "INFO"
+          deploy:
+            resources:
+              limits:
+                memory: 64G
+
+        watchtower:
+          image: containrrr/watchtower
+          container_name: watchtower
+          restart: unless-stopped
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+          environment:
+            WATCHTOWER_POLL_INTERVAL: 60
+          command: core-lite
+
+      volumes:
+        qubic-data:
