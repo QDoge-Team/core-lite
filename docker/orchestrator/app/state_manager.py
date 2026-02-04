@@ -4,6 +4,7 @@ import glob
 import hashlib
 import logging
 import os
+import re
 import shutil
 import struct
 import tempfile
@@ -240,6 +241,15 @@ class StateManager:
                     if f.is_file():
                         files.append(f)
                 break
+        # Page files from SwapVirtualMemory (.pg files in subdirectories)
+        for sub_dir in sorted(self._data_dir.iterdir()):
+            if not sub_dir.is_dir():
+                continue
+            if sub_dir.name.startswith("ep"):
+                continue  # already handled above
+            pg_files = sorted(sub_dir.glob("*.pg"))
+            if pg_files:
+                files.extend(pg_files)
         return files
 
     @staticmethod
@@ -466,8 +476,8 @@ class StateManager:
         )
         return archive_path
 
-    def cleanup_old_epochs(self, current_epoch: int, keep: int = 1) -> None:
-        """Remove state files from old epochs."""
+    def cleanup_old_epochs(self, current_epoch: int, keep: int = 0) -> None:
+        """Remove state files, snapshot dirs, and page dirs from old epochs."""
         for path in self._data_dir.iterdir():
             if not path.is_file():
                 continue
@@ -490,6 +500,20 @@ class StateManager:
                         shutil.rmtree(d)
                 except ValueError:
                     continue
+
+        # Clean up old page file directories (.pg swap files)
+        for d in self._data_dir.iterdir():
+            if not d.is_dir() or d.name.startswith("ep"):
+                continue
+            if not any(d.glob("*.pg")):
+                continue
+            # Extract trailing epoch number (e.g. "td00data198" -> 198)
+            match = re.search(r"(\d+)$", d.name)
+            if match:
+                dir_epoch = int(match.group(1))
+                if dir_epoch < current_epoch - keep:
+                    logger.info(f"Cleaning up old page dir: {d.name}")
+                    shutil.rmtree(d)
 
     @staticmethod
     def compute_checksum(file_path: Path) -> str:

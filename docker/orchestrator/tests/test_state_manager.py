@@ -79,14 +79,37 @@ class TestStateManager:
         assert "system" in names
 
     def test_cleanup_old_epochs(self, tmp_data_dir):
+        """Only current epoch files/dirs are kept; all others removed."""
         (tmp_data_dir / "spectrum.196").write_text("old")
         (tmp_data_dir / "spectrum.197").write_text("prev")
         (tmp_data_dir / "spectrum.198").write_text("current")
+        (tmp_data_dir / "system").write_text("no epoch ext")
+
+        ep196 = tmp_data_dir / "ep196"
+        ep196.mkdir()
+        (ep196 / "system.snp").write_text("old snp")
+
+        ep197 = tmp_data_dir / "ep197"
+        ep197.mkdir()
+        (ep197 / "system.snp").write_text("prev snp")
+
+        ep198 = tmp_data_dir / "ep198"
+        ep198.mkdir()
+        (ep198 / "system.snp").write_text("cur snp")
+
         sm = StateManager(tmp_data_dir, MockDownloader())
-        sm.cleanup_old_epochs(198, keep=1)
+        sm.cleanup_old_epochs(198)
+
+        # Only current epoch survives
         assert not (tmp_data_dir / "spectrum.196").exists()
-        assert (tmp_data_dir / "spectrum.197").exists()
+        assert not (tmp_data_dir / "spectrum.197").exists()
         assert (tmp_data_dir / "spectrum.198").exists()
+        # Non-epoch files are untouched
+        assert (tmp_data_dir / "system").exists()
+        # Snapshot dirs
+        assert not ep196.exists()
+        assert not ep197.exists()
+        assert ep198.exists()
 
     def test_package_snapshot_legacy_name(self, tmp_data_dir):
         (tmp_data_dir / "spectrum.198").write_text("data")
@@ -164,6 +187,114 @@ class TestStateManager:
             zf.extractall(extract_dir)
         assert (extract_dir / "spectrum.198").read_bytes() == b"A" * 100_000
         assert (extract_dir / "universe.198").read_bytes() == b"B" * 200_000
+
+    def test_list_snapshot_files_includes_pg(self, tmp_data_dir):
+        """Page files (.pg) in subdirectories are included in snapshot."""
+        (tmp_data_dir / "spectrum.199").write_text("data")
+        (tmp_data_dir / "universe.199").write_text("data")
+        ep_dir = tmp_data_dir / "ep199"
+        ep_dir.mkdir()
+        (ep_dir / "system.snp").write_text("snp")
+
+        # Create page file directories
+        td_dir = tmp_data_dir / "td00data199"
+        td_dir.mkdir()
+        (td_dir / "abcdef12.pg").write_bytes(b"\x00" * 100)
+        (td_dir / "abcdef34.pg").write_bytes(b"\x00" * 100)
+
+        tick_dir = tmp_data_dir / "tickdata199"
+        tick_dir.mkdir()
+        (tick_dir / "ghijkl56.pg").write_bytes(b"\x00" * 100)
+
+        sm = StateManager(tmp_data_dir, MockDownloader())
+        files = sm.list_snapshot_files(199)
+        names = [str(f.relative_to(tmp_data_dir)) for f in files]
+        assert "td00data199/abcdef12.pg" in names
+        assert "td00data199/abcdef34.pg" in names
+        assert "tickdata199/ghijkl56.pg" in names
+
+    def test_list_snapshot_files_skips_non_pg_subdirs(self, tmp_data_dir):
+        """Subdirectories without .pg files are not included."""
+        (tmp_data_dir / "spectrum.199").write_text("data")
+        (tmp_data_dir / "universe.199").write_text("data")
+
+        other_dir = tmp_data_dir / "somedir"
+        other_dir.mkdir()
+        (other_dir / "random.txt").write_text("not a page file")
+
+        sm = StateManager(tmp_data_dir, MockDownloader())
+        files = sm.list_snapshot_files(199)
+        names = [f.name for f in files]
+        assert "random.txt" not in names
+
+    def test_cleanup_old_pg_dirs(self, tmp_data_dir):
+        """Page dirs from non-current epochs are removed (default keep=0)."""
+        (tmp_data_dir / "spectrum.199").write_text("current")
+
+        old_dir = tmp_data_dir / "td00data197"
+        old_dir.mkdir()
+        (old_dir / "page1.pg").write_bytes(b"\x00")
+
+        cur_dir = tmp_data_dir / "td00data199"
+        cur_dir.mkdir()
+        (cur_dir / "page2.pg").write_bytes(b"\x00")
+
+        prev_dir = tmp_data_dir / "tickdata198"
+        prev_dir.mkdir()
+        (prev_dir / "page3.pg").write_bytes(b"\x00")
+
+        sm = StateManager(tmp_data_dir, MockDownloader())
+        sm.cleanup_old_epochs(199)
+
+        assert not old_dir.exists()
+        assert cur_dir.exists()
+        assert not prev_dir.exists()
+
+    def test_cleanup_keep_previous_epoch(self, tmp_data_dir):
+        """With keep=1, previous epoch data is preserved."""
+        (tmp_data_dir / "spectrum.197").write_text("old")
+        (tmp_data_dir / "spectrum.198").write_text("prev")
+        (tmp_data_dir / "spectrum.199").write_text("current")
+
+        prev_pg = tmp_data_dir / "td00data198"
+        prev_pg.mkdir()
+        (prev_pg / "page.pg").write_bytes(b"\x00")
+
+        old_pg = tmp_data_dir / "td00data197"
+        old_pg.mkdir()
+        (old_pg / "page.pg").write_bytes(b"\x00")
+
+        sm = StateManager(tmp_data_dir, MockDownloader())
+        sm.cleanup_old_epochs(199, keep=1)
+
+        assert not (tmp_data_dir / "spectrum.197").exists()
+        assert (tmp_data_dir / "spectrum.198").exists()
+        assert (tmp_data_dir / "spectrum.199").exists()
+        assert not old_pg.exists()
+        assert prev_pg.exists()
+
+    def test_package_snapshot_includes_pg_files(self, tmp_data_dir):
+        """Packaged snapshot archive contains .pg files with correct paths."""
+        (tmp_data_dir / "spectrum.199").write_bytes(b"S" * 1000)
+        (tmp_data_dir / "universe.199").write_bytes(b"U" * 1000)
+        (tmp_data_dir / "system").write_bytes(b"Y" * 100)
+        ep_dir = tmp_data_dir / "ep199"
+        ep_dir.mkdir()
+        (ep_dir / "system.snp").write_bytes(b"N" * 100)
+
+        pg_dir = tmp_data_dir / "td00data199"
+        pg_dir.mkdir()
+        (pg_dir / "testpage.pg").write_bytes(b"P" * 500)
+
+        sm = StateManager(tmp_data_dir, MockDownloader())
+        dest = tmp_data_dir / "out"
+        dest.mkdir()
+        archive = sm.package_snapshot(199, dest, tick=44000000)
+
+        with zipfile.ZipFile(archive, "r") as zf:
+            names = zf.namelist()
+            assert "td00data199/testpage.pg" in names
+            assert zf.read("td00data199/testpage.pg") == b"P" * 500
 
     def test_compute_checksum(self, tmp_data_dir):
         test_file = tmp_data_dir / "test.bin"

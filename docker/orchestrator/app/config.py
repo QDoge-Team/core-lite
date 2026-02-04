@@ -119,7 +119,7 @@ class DownloaderConfig(BaseModel):
 class CleanupConfig(BaseModel):
     enabled: bool = True
     interval_seconds: int = 3600     # run cleanup every hour
-    keep_epochs: int = 1             # keep N old epochs alongside the current one
+    keep_epochs: int = 0             # keep N old epochs alongside the current one
 
 
 class AlertingConfig(BaseModel):

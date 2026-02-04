@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Default interval between cleanup runs (seconds).
 DEFAULT_INTERVAL_SECONDS = 3600
 # How many old epochs to keep alongside the current one.
-DEFAULT_KEEP_EPOCHS = 1
+DEFAULT_KEEP_EPOCHS = 0
 
 
 class Cleanup:
