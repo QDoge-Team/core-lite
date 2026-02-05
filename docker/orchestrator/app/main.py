@@ -15,6 +15,7 @@ from app.cleanup import Cleanup
 from app.config import OrchestratorConfig, load_config
 from app.downloaders import create_downloader
 from app.epoch_service import EpochService
+from app.local_snapshot_saver import LocalSnapshotSaver
 from app.logging_config import setup_logging
 from app.management_api import ManagementAPI
 from app.models import EpochInfo, NodeHealth, OrchestratorMode
@@ -500,6 +501,20 @@ class Orchestrator:
                     name="cleanup",
                 )
             )
+
+        # Local snapshot saver (periodic F8-style saves)
+        if self._config.local_snapshot.enabled:
+            local_snapshot_saver = LocalSnapshotSaver(
+                config=self._config.local_snapshot,
+                node_client=self._node_client,
+            )
+            self._tasks.append(
+                asyncio.create_task(
+                    local_snapshot_saver.run(self._shutdown_event),
+                    name="local_snapshot_saver",
+                )
+            )
+            logger.info("Local snapshot saver enabled")
 
         # Management API (always)
         self._management_api = ManagementAPI(

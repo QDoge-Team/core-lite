@@ -38,6 +38,7 @@ write_files:
           image: qubiccore/lite:latest
           container_name: core-lite
           restart: unless-stopped
+          stop_grace_period: 120s    # give 2 minutes for state save
           volumes:
             - qubic-data:/qubic
           environment:
@@ -55,6 +56,8 @@ write_files:
             - /var/run/docker.sock:/var/run/docker.sock
           environment:
             WATCHTOWER_POLL_INTERVAL: 60
+            WATCHTOWER_TIMEOUT: 120s
+            DOCKER_API_VERSION: "1.44"
           command: core-lite
 
       volumes:

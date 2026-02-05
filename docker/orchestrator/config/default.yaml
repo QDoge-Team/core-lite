@@ -93,6 +93,11 @@ cleanup:
   interval_seconds: 3600            # run cleanup every hour
   keep_epochs: 0                    # only keep the current epoch (0 = remove all non-current)
 
+# Local snapshot saver (periodic F8-style saves to disk)
+local_snapshot:
+  enabled: false                    # enable periodic local snapshot saves
+  interval_seconds: 3600            # save every hour
+
 # Alerting
 alerting:
   enabled: false

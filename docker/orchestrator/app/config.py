@@ -122,6 +122,11 @@ class CleanupConfig(BaseModel):
     keep_epochs: int = 0             # keep N old epochs alongside the current one
 
 
+class LocalSnapshotConfig(BaseModel):
+    enabled: bool = False
+    interval_seconds: int = 3600     # save local snapshot every hour (like pressing F8)
+
+
 class AlertingConfig(BaseModel):
     enabled: bool = False
     webhook_url: str = ""
@@ -190,6 +195,7 @@ class OrchestratorConfig(BaseSettings):
     downloader: DownloaderConfig = Field(default_factory=DownloaderConfig)
     alerting: AlertingConfig = Field(default_factory=AlertingConfig)
     cleanup: CleanupConfig = Field(default_factory=CleanupConfig)
+    local_snapshot: LocalSnapshotConfig = Field(default_factory=LocalSnapshotConfig)
 
     def get_peers_list(self) -> list[str]:
         if not self.peers:

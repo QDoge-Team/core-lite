@@ -7,6 +7,7 @@ services:
     image: qubic-orchestrator:latest
     container_name: qubic-mainnet
     restart: unless-stopped
+    stop_grace_period: 120s
     ports:
       - "21841:21841"
       - "41841:41841"
@@ -28,6 +29,9 @@ services:
       # Watchdog
       QUBIC_WATCHDOG__ENABLED: "true"
       QUBIC_WATCHDOG__MAX_RESTARTS: "5"
+      # Local snapshot saver (periodic F8-style saves)
+      QUBIC_LOCAL_SNAPSHOT__ENABLED: "true"
+      QUBIC_LOCAL_SNAPSHOT__INTERVAL_SECONDS: "3600"
       # Alerting (optional)
       # QUBIC_ALERTING__ENABLED: "true"
       # QUBIC_ALERTING__WEBHOOK_URL: "https://hooks.slack.com/services/..."

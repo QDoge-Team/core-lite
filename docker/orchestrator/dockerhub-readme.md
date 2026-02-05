@@ -19,6 +19,7 @@ services:
   core-lite:
     image: qubiccore/lite:latest
     restart: unless-stopped
+    stop_grace_period: 120s
     ports:
       - "21841:21841"   # P2P
       - "41841:41841"   # HTTP API
@@ -34,6 +35,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       WATCHTOWER_POLL_INTERVAL: 60
+      WATCHTOWER_TIMEOUT: 120s
     command: core-lite
 
 volumes:
@@ -91,6 +93,13 @@ On startup the orchestrator:
 | `QUBIC_WATCHDOG__STARTUP_GRACE_SECONDS` | `300` | Grace period before health checks start |
 | `QUBIC_WATCHDOG__STUCK_THRESHOLD_SECONDS` | `300` | Seconds without tick progress before restart |
 | `QUBIC_WATCHDOG__RESTART_COOLDOWN_SECONDS` | `600` | Minimum time between restarts |
+
+### Local Snapshot Saver
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `QUBIC_LOCAL_SNAPSHOT__ENABLED` | `false` | Enable periodic local snapshot saves (like pressing F8) |
+| `QUBIC_LOCAL_SNAPSHOT__INTERVAL_SECONDS` | `3600` | Interval between saves (default: 1 hour) |
 
 ### Alerting (optional)
 

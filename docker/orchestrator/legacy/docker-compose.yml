@@ -8,6 +8,7 @@ services:
     image: qubic-core-lite:latest
     container_name: qubic-mainnet
     restart: unless-stopped
+    stop_grace_period: 120s
     ports:
       - "21841:21841"
     volumes:
