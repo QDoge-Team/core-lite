@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 import shutil
 import signal
 import time
@@ -129,8 +130,16 @@ class Orchestrator:
 
     def _init_components(self) -> None:
         """Initialize all orchestrator components."""
+        # Generate random HTTP passcode if not configured
+        # Format: 4 random numbers separated by dashes (e.g., "123-456-789-012")
+        if not self._config.http_passcode:
+            passcode = "-".join(str(secrets.randbelow(10**12)) for _ in range(4))
+            # Update config so build_qubic_args() will include it
+            object.__setattr__(self._config, "http_passcode", passcode)
+            logger.info("Generated random HTTP passcode for node API authentication")
+
         self._node_client = NodeClient(
-            passcode=self._config.http_passcode or "",
+            passcode=self._config.http_passcode,
         )
         self._alert_manager = AlertManager(self._config.alerting)
 

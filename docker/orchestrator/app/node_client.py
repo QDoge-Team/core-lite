@@ -66,9 +66,17 @@ class NodeClient:
                 params=params,
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
-                return resp.status == 200
+                if resp.status == 200:
+                    logger.info("Shutdown request accepted by node")
+                    return True
+                else:
+                    logger.warning(
+                        f"Shutdown request failed: HTTP {resp.status}"
+                    )
+                    return False
         except (aiohttp.ClientError, TimeoutError):
             # Node may close connection immediately on shutdown
+            logger.info("Shutdown request sent (connection closed by node)")
             return True
 
     async def download_spectrum(self, dest_path: Path, zip: bool = True) -> Path:

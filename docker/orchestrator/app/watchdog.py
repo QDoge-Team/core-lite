@@ -113,6 +113,10 @@ class Watchdog:
         """Assess current node health."""
         # 1. Check if process is alive
         if not self._process_manager.is_running():
+            # Don't report as crashed if shutdown was intentionally requested
+            if self._process_manager.shutdown_requested:
+                logger.info("Process exited after intentional shutdown request")
+                return NodeHealth.HEALTHY  # Prevent restart
             return NodeHealth.CRASHED
 
         # 2. Try to get tick info

@@ -65,6 +65,7 @@ class ProcessManager:
         self._process: Optional[asyncio.subprocess.Process] = None
         self._stdout_task: Optional[asyncio.Task] = None
         self._stderr_task: Optional[asyncio.Task] = None
+        self._shutdown_requested: bool = False
 
     async def start(self, args: list[str]) -> asyncio.subprocess.Process:
         """Start the Qubic binary with the given arguments."""
@@ -72,6 +73,7 @@ class ProcessManager:
         logger.info(f"Starting Qubic: {' '.join(cmd)}")
         logger.info(f"Working directory: {self._working_dir}")
 
+        self._shutdown_requested = False  # Reset on start
         self._process = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
@@ -113,6 +115,7 @@ class ProcessManager:
         Escalation: /shutdown endpoint → SIGTERM → SIGKILL.
         Returns the process exit code.
         """
+        self._shutdown_requested = True
         if self._process is None or self._process.returncode is not None:
             return self._process.returncode if self._process else -1
 
@@ -189,6 +192,11 @@ class ProcessManager:
             and self._process.returncode is None
         )
 
+    @property
+    def shutdown_requested(self) -> bool:
+        """True if graceful shutdown was requested (via stop() or ESC key)."""
+        return self._shutdown_requested
+
     def get_pid(self) -> Optional[int]:
         if self._process is not None:
             return self._process.pid
@@ -221,6 +229,9 @@ class ProcessManager:
             await self._process.stdin.drain()
             desc = KEY_DESCRIPTIONS.get(key_name, key_name)
             logger.info(f"Sent key {key_name.upper()} ({desc})")
+            # Mark as intentional shutdown if ESC key was sent
+            if key_name == "esc":
+                self._shutdown_requested = True
             return True
         except (BrokenPipeError, ConnectionResetError) as e:
             logger.warning(f"Failed to send key {key_name}: {e}")
