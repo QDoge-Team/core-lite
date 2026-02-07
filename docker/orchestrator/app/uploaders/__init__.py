@@ -10,15 +10,19 @@ from app.uploaders.base import BaseUploader
 
 def create_uploader(config: SourceConfig) -> BaseUploader:
     if config.uploader_type == "scp":
-        from app.uploaders.scp import ScpUploader
+        from app.uploaders.chunked_scp import ChunkedScpUploader
 
-        return ScpUploader(
+        return ChunkedScpUploader(
             host=config.scp_host,
             user=config.scp_user,
             port=config.scp_port,
             dest_path=config.scp_dest_path,
             key_file=config.scp_key_file,
             timeout=config.upload_timeout_seconds,
+            chunk_size_mb=config.scp_chunk_size_mb,
+            chunk_timeout=config.scp_chunk_timeout,
+            parallel_chunks=config.scp_parallel_chunks,
+            min_chunk_size_gb=config.scp_min_chunk_size_gb,
         )
     elif config.uploader_type == "rsync":
         from app.uploaders.rsync import RsyncUploader

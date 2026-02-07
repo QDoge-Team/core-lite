@@ -390,6 +390,10 @@ class SnapshotCycle:
         # ZIP compression of potentially multi-GB state files.
         staging_dir = self._data_dir / ".snapshot-staging"
         staging_dir.mkdir(exist_ok=True)
+
+        # Marker file to prevent cleanup task from removing staging
+        in_progress_marker = staging_dir / ".upload-in-progress"
+
         try:
             archive_path = await asyncio.to_thread(
                 self._state_manager.package_snapshot,
@@ -417,25 +421,39 @@ class SnapshotCycle:
         }
         remote_key = self._archive_key(epoch, snap_tick)
 
-        upload_ok = await self._upload_with_retries(
-            archive_path, metadata, remote_key
-        )
-
-        if upload_ok:
-            await self._publish_metadata(epoch, snap_tick, metadata)
-        else:
-            await self._alert_manager.send_alert(
-                "error",
-                "snapshot_upload_failed",
-                {"epoch": epoch, "tick": snap_tick},
-            )
-
-        # Cleanup staging
+        # Mark upload as in-progress to prevent cleanup interference
         try:
-            if archive_path.exists():
-                archive_path.unlink()
+            in_progress_marker.touch()
         except OSError:
             pass
+
+        try:
+            upload_ok = await self._upload_with_retries(
+                archive_path, metadata, remote_key
+            )
+
+            if upload_ok:
+                await self._publish_metadata(epoch, snap_tick, metadata)
+            else:
+                await self._alert_manager.send_alert(
+                    "error",
+                    "snapshot_upload_failed",
+                    {"epoch": epoch, "tick": snap_tick},
+                )
+        finally:
+            # Remove in-progress marker
+            try:
+                in_progress_marker.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        # Cleanup staging only after successful upload
+        if upload_ok:
+            try:
+                if archive_path.exists():
+                    archive_path.unlink()
+            except OSError:
+                pass
 
         return upload_ok
 

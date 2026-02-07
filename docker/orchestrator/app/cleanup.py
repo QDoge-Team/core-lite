@@ -90,6 +90,14 @@ class Cleanup:
     def _cleanup_staging(self) -> None:
         """Remove leftover snapshot staging directories."""
         staging = self._data_dir / ".snapshot-staging"
-        if staging.is_dir():
-            logger.info("Removing leftover staging directory")
-            shutil.rmtree(staging, ignore_errors=True)
+        if not staging.is_dir():
+            return
+
+        # Don't cleanup if upload is in progress
+        in_progress_marker = staging / ".upload-in-progress"
+        if in_progress_marker.exists():
+            logger.debug("Skipping staging cleanup - upload in progress")
+            return
+
+        logger.info("Removing leftover staging directory")
+        shutil.rmtree(staging, ignore_errors=True)

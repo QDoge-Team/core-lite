@@ -79,6 +79,12 @@ class SourceConfig(BaseModel):
     scp_dest_path: str = "/snapshots"
     scp_key_file: str = ""
 
+    # Chunked upload settings (for large files)
+    scp_chunk_size_mb: int = 512        # Split into 512MB chunks
+    scp_chunk_timeout: int = 600        # 10 min timeout per chunk
+    scp_parallel_chunks: int = 2        # Upload 2 chunks in parallel
+    scp_min_chunk_size_gb: int = 2      # Only chunk files > 2GB
+
     # Rsync uploader (set uploader_type: "rsync")
     # Reuses scp_host, scp_user, scp_port, scp_dest_path, scp_key_file
     rsync_bandwidth_limit: int = 0      # KB/s, 0 = unlimited
