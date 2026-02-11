@@ -14,6 +14,11 @@ void qLogger::processRequestLog(unsigned long long processorNumber, Peer* peer, 
         && request->passcode[2] == logReaderPasscodes[2]
         && request->passcode[3] == logReaderPasscodes[3])
     {
+        if (request->fromID > request->toID)
+        {
+            enqueueResponse(peer, 0, EndResponse::type(), header->dejavu(), NULL);
+            return;
+        }
         BlobInfo startIdBufferRange = logBuf.getBlobInfo(request->fromID);
         BlobInfo endIdBufferRange = logBuf.getBlobInfo(request->toID); // inclusive
         if (startIdBufferRange.startIndex != -1 && startIdBufferRange.length != -1
@@ -123,6 +128,11 @@ void qLogger::processRequestPrunePageFile(Peer* peer, RequestResponseHeader* hea
 {
 #if ENABLED_LOGGING
     RequestPruningLog* request = header->getPayload<RequestPruningLog>();
+    if (request->fromLogId > request->toLogId)
+    {
+        enqueueResponse(peer, 0, EndResponse::type(), header->dejavu(), NULL);
+        return;
+    }
     if (request->passcode[0] == logReaderPasscodes[0]
         && request->passcode[1] == logReaderPasscodes[1]
         && request->passcode[2] == logReaderPasscodes[2]
