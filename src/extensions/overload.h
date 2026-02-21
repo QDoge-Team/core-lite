@@ -30,6 +30,8 @@
 #include <queue>
 #endif
 
+static volatile bool listOfPeersIsStaticLiteNode = false;
+
 #define ACQUIRE_NO_SPINNING(lock) while (_InterlockedCompareExchange8(&lock, 1, 0)) std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
 #undef CreateEvent
@@ -963,6 +965,12 @@ struct Overload {
             #endif
             tcpData->connectStatus = ConnectStatus::Connecting;
             SOCKET clientSocket = accept(tcpData->socket, (sockaddr*)&addr, &addrlen);
+            if (listOfPeersIsStaticLiteNode)
+            {
+                logToConsole(L"Static network mode, rejected a incomming connection");
+                ListenToken->CompletionToken.Status = EFI_ABORTED;
+                return;
+            }
             if (clientSocket == INVALID_SOCKET) {
                 logToConsole(L"Obtained tcpData failed");
                 ListenToken->CompletionToken.Status = EFI_ABORTED;

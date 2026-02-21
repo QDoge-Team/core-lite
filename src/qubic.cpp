@@ -7896,6 +7896,7 @@ static void processKeyPresses()
         case 0x15:
         {
             listOfPeersIsStatic = !listOfPeersIsStatic;
+            listOfPeersIsStaticLiteNode = listOfPeersIsStatic;
         }
         break;
 
