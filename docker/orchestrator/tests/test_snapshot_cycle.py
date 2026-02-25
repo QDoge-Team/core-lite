@@ -612,12 +612,12 @@ class TestCleanupOldSnapshots:
         assert "198/ep198-t43101520-snap.zip" in uploader.small_files
 
     @pytest.mark.asyncio
-    async def test_cleanup_removes_old_epoch_directory(
+    async def test_cleanup_removes_old_epoch_snapshot_files(
         self, source_config, node_client, alert_manager, data_dir
     ):
-        """Old epoch directory is removed entirely when no kept snapshots."""
+        """Old epoch snapshot files are removed but directory is preserved."""
         uploader = FakeUploader()
-        # Epoch 197: one old snapshot
+        # Epoch 197: one old snapshot + index
         uploader.small_files["197/ep197-t42900000-snap.zip"] = b"z"
         uploader.small_files["197/ep197-t42900000-snap.json"] = b"{}"
         uploader.small_files["197/ep197-latest-snap.json"] = b"{}"
@@ -638,11 +638,14 @@ class TestCleanupOldSnapshots:
         )
         await cycle._cleanup_old_snapshots()
 
-        # Entire epoch 197 directory removed
-        assert "197" in uploader.deleted_dirs
-        # Epoch 197 files gone from small_files (deleted by delete_remote_dir)
-        assert "197/ep197-t42900000-snap.zip" not in uploader.small_files
-        assert "197/ep197-latest-snap.json" not in uploader.small_files
+        # Epoch directory NOT removed (preserves epoch files)
+        assert "197" not in uploader.deleted_dirs
+        # Snapshot files individually deleted
+        assert "197/ep197-t42900000-snap.zip" in uploader.deleted
+        assert "197/ep197-t42900000-snap.json" in uploader.deleted
+        # Index and lock cleaned up for epochs with no remaining snapshots
+        assert "197/ep197-latest-snap.json" in uploader.deleted
+        assert "197/snap.lock" in uploader.deleted
         # Epoch 198 snapshots untouched
         assert "198/ep198-t43101500-snap.zip" in uploader.small_files
         assert "198/ep198-t43101510-snap.zip" in uploader.small_files
@@ -720,9 +723,16 @@ class TestCleanupOldSnapshots:
         )
         await cycle._cleanup_old_snapshots()
 
-        # ep196 and ep197 dirs removed entirely
-        assert "196" in uploader.deleted_dirs
-        assert "197" in uploader.deleted_dirs
+        # Epoch directories NOT removed (preserves epoch files)
+        assert "196" not in uploader.deleted_dirs
+        assert "197" not in uploader.deleted_dirs
+        # Snapshot files individually deleted for ep196 and ep197
+        assert "196/ep196-t42800000-snap.zip" in uploader.deleted
+        assert "196/ep196-t42800000-snap.json" in uploader.deleted
+        assert "196/ep196-latest-snap.json" in uploader.deleted
+        assert "197/ep197-t42900000-snap.zip" in uploader.deleted
+        assert "197/ep197-t42900000-snap.json" in uploader.deleted
+        assert "197/ep197-latest-snap.json" in uploader.deleted
         # ep198 untouched
         assert "198/ep198-t43101500-snap.zip" in uploader.small_files
         assert "198/ep198-t43101510-snap.zip" in uploader.small_files

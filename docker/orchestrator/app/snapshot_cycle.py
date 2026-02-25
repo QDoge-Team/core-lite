@@ -783,21 +783,23 @@ class SnapshotCycle:
         deleted_count = 0
 
         for epoch, tick, ext in to_delete:
-            if epoch in kept_epochs:
-                # Epoch still has kept snapshots — only delete this archive
-                archive_key = f"{epoch}/ep{epoch}-t{tick}-snap.{ext}"
-                sidecar_key = f"{epoch}/ep{epoch}-t{tick}-snap.json"
-                logger.info(f"Deleting old snapshot: {archive_key}")
-                await self._uploader.delete_file(archive_key)
-                await self._uploader.delete_file(sidecar_key)
-            # Entire epoch will be removed below
+            archive_key = f"{epoch}/ep{epoch}-t{tick}-snap.{ext}"
+            sidecar_key = f"{epoch}/ep{epoch}-t{tick}-snap.json"
+            logger.info(f"Deleting old snapshot: {archive_key}")
+            await self._uploader.delete_file(archive_key)
+            await self._uploader.delete_file(sidecar_key)
             deleted_count += 1
 
-        # Remove entire epoch directories that have no remaining snapshots
+        # Clean up index/lock files from epochs with no remaining snapshots
+        # (but preserve the epoch directory and any non-snapshot files)
         removed_epochs = {s[0] for s in to_delete} - kept_epochs
         for epoch in removed_epochs:
-            logger.info(f"Removing old epoch directory: {epoch}")
-            await self._uploader.delete_remote_dir(str(epoch))
+            logger.info(
+                f"Cleaning snapshot metadata from epoch {epoch} "
+                "(preserving epoch directory and files)"
+            )
+            await self._uploader.delete_file(self._index_key(epoch))
+            await self._uploader.delete_file(self._lock_key(epoch))
 
         if deleted_count > 0:
             logger.info(
