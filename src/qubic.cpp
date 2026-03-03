@@ -6727,7 +6727,7 @@ static bool initialize()
                 m256i privateKey;
                 m256i publicKey;
                 m256i subseed;
-                getSubseed(customSeeds[0], subseed.m256i_u8);
+                getSubseed(customSeeds[i], subseed.m256i_u8);
                 getPrivateKey(subseed.m256i_u8, privateKey.m256i_u8);
                 getPublicKey(privateKey.m256i_u8, publicKey.m256i_u8);
                 increaseEnergy(publicKey, 10'000'000'000, false);
