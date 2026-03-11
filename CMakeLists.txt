@@ -5,6 +5,21 @@ project(qubic CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Force Clang >= 18
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 18.0)
+        message(FATAL_ERROR "Clang version 18 or higher is required. Found: ${CMAKE_CXX_COMPILER_VERSION}")
+    endif()
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    # Note: AppleClang has different versioning.
+    # AppleClang 15 is roughly equivalent to LLVM Clang 16/17.
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15.0)
+        message(FATAL_ERROR "AppleClang 15+ required for this project.")
+    endif()
+else()
+    message(WARNING "You are not using Clang. This project is optimized for Clang 18+.")
+endif()
+
 # Include the centralized compiler detection module
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerSetup)

@@ -65,6 +65,14 @@ if(NO_ENABLE_QUBIC_LOGGING_EVENT)
     target_compile_definitions(Qubic PRIVATE NO_ENABLE_QUBIC_LOGGING_EVENT)
 endif()
 
+if(TESTNET)
+    target_compile_definitions(Qubic PRIVATE TESTNET)
+endif()
+
+if(TESTNET_PREFILL_QUS)
+    target_compile_definitions(Qubic PRIVATE TESTNET_PREFILL_QUS)
+endif()
+
 # Set specific properties for assembly files to avoid C++ flags being applied
 set_source_files_properties(platform/custom_stack.nasm PROPERTIES
     COMPILE_FLAGS ""

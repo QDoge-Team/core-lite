@@ -390,6 +390,8 @@ struct Overload {
     inline static EventQueue<TransmitRequest> transmitQueue;
     inline static EventQueue<ReceiveRequest> receiveQueue;
 
+    inline static std::mutex networkingLock;
+
     // Directly call the setup function without using custom stack.
     static void startThread(EFI_AP_PROCEDURE procedure, void* data, unsigned long long ProcessorNumber, EFI_EVENT WaitEvent, unsigned long long TimeoutInMicroseconds) {
 		bool isThreadFinished = false;
@@ -472,8 +474,11 @@ struct Overload {
     }
 
     static EFI_STATUS SetTime(IN EFI_TIME* Time) {
-        logToConsole(L"SetTime IS NOT IMPLEMENTED");
-        return EFI_UNSUPPORTED;
+        if (Time == nullptr) {
+            return EFI_INVALID_PARAMETER;
+        }
+        utcTime = *Time;
+        return EFI_SUCCESS;
     }
 
     ////////////// BootServices Implementation //////////////
@@ -522,6 +527,12 @@ struct Overload {
     }
 
     static EFI_STATUS OpenProtocol(IN EFI_HANDLE Handle, IN EFI_GUID* Protocol, OUT void** Interface OPTIONAL, IN EFI_HANDLE AgentHandle, IN EFI_HANDLE ControllerHandle, IN unsigned int Attributes) {
+        std::lock_guard<std::mutex> lock(networkingLock);
+
+        if (Handle == nullptr || Protocol == nullptr || Interface == nullptr) {
+            return EFI_INVALID_PARAMETER;
+        }
+
         if (memcmp(Protocol, &tcp4ProtocolGuid, sizeof(EFI_GUID)) == 0) {
             *Interface = new EFI_TCP4_PROTOCOL;
             // Check if this is a incomming socket and set socket instance if it is
@@ -1185,10 +1196,11 @@ struct Overload {
         ih = new EFI_HANDLE;
         st = new EFI_SYSTEM_TABLE;
         st->BootServices = new EFI_BOOT_SERVICES;
+        st->RuntimeServices = new EFI_RUNTIME_SERVICES;
         st->ConOut = new EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL;
         st->ConIn = new EFI_SIMPLE_TEXT_INPUT_PROTOCOL;
         bs = st->BootServices;
-        rs = new EFI_RUNTIME_SERVICES;
+        rs = st->RuntimeServices;
 
         ////// RuntimeServices Implementation ///////
         rs->GetTime = Overload::GetTime;

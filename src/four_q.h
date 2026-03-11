@@ -1282,7 +1282,7 @@ static void decompose(unsigned long long* k, unsigned long long* scalars)
     const unsigned long long a3 = mul_truncate(k, (unsigned long long*)ell3);
     const unsigned long long a4 = mul_truncate(k, (unsigned long long*)ell4);
 
-#ifdef __AVX512F__
+#ifdef __AVX512F__DISABLED__
     using namespace FourQ;
     * ((__m256i*)scalars) = _mm256_add_epi64(_mm256_add_epi64(_mm256_add_epi64(_mm256_add_epi64(_mm256_mullo_epi64(_mm256_set1_epi64x(a1), B1), _mm256_mullo_epi64(_mm256_set1_epi64x(a2), B2)), _mm256_mullo_epi64(_mm256_set1_epi64x(a3), B3)), _mm256_mullo_epi64(_mm256_set1_epi64x(a4), B4)), C);
     if (!((scalars[0] += k[0]) & 1))

@@ -497,7 +497,7 @@ bool QPI::QpiContextProcedureCall::distributeDividends(long long amountPerShare)
     {
         ACQUIRE(universeLock);
 
-        Asset asset(id::zero(), *((unsigned long long*)contractDescriptions[_currentContractIndex].assetName));
+        Asset asset{id::zero(), *((uint64*)contractDescriptions[_currentContractIndex].assetName)};
         AssetPossessionIterator iter(asset);
         long long totalShareCounter = 0;
 

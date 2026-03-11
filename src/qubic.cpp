@@ -36,7 +36,7 @@
 #define system qsystem
 #endif
 
-// #define NO_PULSE
+// #define OLD_QVAULT
 
 //#define INCLUDE_CONTRACT_TEST_EXAMPLES
 
@@ -1954,7 +1954,7 @@ static void processSpecialCommand(Peer* peer, RequestResponseHeader* header)
 
 static void processOracleMachineReply(Peer* peer, RequestResponseHeader* header)
 {
-    // Ignore message fron non oracle machine node
+    // Ignore message from non oracle machine node
     if (!peer->isOracleMachineNode())
     {
         return;
@@ -3581,6 +3581,9 @@ static void processTick(unsigned long long processorNumber)
         logToConsole(message);
     }
 
+    // Generate subscription queries (may create queries that immediately timout if the network was stuck)
+    oracleEngine.generateSubscriptionQueries();
+
     // Check for oracle query timeouts (may schedule notification)
     oracleEngine.processTimeouts();
 
@@ -4061,7 +4064,15 @@ static void beginEpoch()
     numberOfOwnComputorIndices = 0;
 #ifdef TESTNET
     broadcastedComputors.computors.epoch = system.epoch;
-    for (unsigned int i = 0; i < NUMBER_OF_COMPUTORS; i++)
+    int broadcastedComputorSeedsCount = std::size(broadcastedComputorSeeds);
+
+    if (broadcastedComputorSeedsCount != NUMBER_OF_COMPUTORS)
+    {
+        logToConsole(L"ERROR: broadcastedComputorSeedsCount != NUMBER_OF_COMPUTORS");
+        exit(1);
+    }
+
+    for (unsigned int i = 0; i < broadcastedComputorSeedsCount; i++)
     {
         m256i publicKey;
         m256i privateKey;
@@ -4248,6 +4259,85 @@ static void endEpoch()
                 gRevenueComponents.customMiningScore,
                 gRevenueComponents.revenue);
         }
+
+        // Revenue V2: filter transactions. Run here but have not applied yet
+        // Make sure run after gRevenueComponents is calculated because it use some of data
+        gEpochRevenueData.initialTick = system.initialTick;
+        gEpochRevenueData.totalTicks = system.tick - system.initialTick;
+        for (unsigned int tick = system.initialTick; tick < system.tick; tick++)
+        {
+            const m256i& tickLeaderPublicKey = broadcastedComputors.computors.publicKeys[tick % NUMBER_OF_COMPUTORS];
+
+            // Defensive lock, actually at the end of epoch, no more tick data written. 
+            ts.tickData.acquireLock();
+            unsigned int tickOffset = tick - system.initialTick;
+            TickData& td = ts.tickData.getByTickInCurrentEpoch(tick);
+            if ((td.epoch == system.epoch) && (tickOffset < MAX_NUMBER_OF_TICKS_PER_EPOCH))
+            {
+                unsigned int nTickLeader = 0;
+                unsigned int nProtocol = 0;
+                unsigned int nContract = 0;
+                unsigned int nOther = 0;
+                auto* offsets = ts.tickTransactionOffsets.getByTickInCurrentEpoch(tick);
+                for (unsigned int i = 0; i < NUMBER_OF_TRANSACTIONS_PER_TICK; i++)
+                {
+                    if (isZero(td.transactionDigests[i]))
+                    {
+                        continue;
+                    }
+
+                    // Make sure tx body existed
+                    if (!offsets[i])
+                    {
+                        continue;
+                    }
+
+                    const Transaction* tx = ts.tickTransactions(offsets[i]);
+
+                    // skip leader's own txs
+                    if (tx->sourcePublicKey == tickLeaderPublicKey)
+                    {
+                        nTickLeader++;
+                        continue;
+                    }
+
+                    if (isZero(tx->destinationPublicKey))
+                    {
+                        nProtocol++;
+                    }
+                    else
+                    {
+                        m256i masked = tx->destinationPublicKey;
+                        masked.m256i_u64[0] &= ~(unsigned long long)(MAX_NUMBER_OF_CONTRACTS - 1);
+                        unsigned int cIdx = (unsigned int)tx->destinationPublicKey.m256i_u64[0];
+                        if (isZero(masked) && cIdx < contractCount)
+                        {
+                            nContract++;
+                        }
+                        else
+                        {
+                            nOther++;
+                        }
+                    }
+
+                }
+                gEpochRevenueData.perTickTxTickLeaderCount[tickOffset] = (unsigned short)nTickLeader;
+
+                gEpochRevenueData.perTickTxCount[tickOffset] = (unsigned short)(nProtocol + nContract + nOther);
+                gEpochRevenueData.perTickProtocolTxCount[tickOffset] = (unsigned short)nProtocol;
+                gEpochRevenueData.perTickContractTxCount[tickOffset] = (unsigned short)nContract;
+                gEpochRevenueData.perTickOtherTxCount[tickOffset] = (unsigned short)nOther;
+            }
+            ts.tickData.releaseLock();
+        }
+        // Fetch oracle revenue points (accumulated during epoch, reset at beginEpoch)
+        {
+            OracleRevenuePoints oracleRevPoints;
+            oracleEngine.getRevenuePoints(oracleRevPoints);
+            copyMemory(gEpochRevenueData.oracleScore, oracleRevPoints.computorRevPoints);
+        }
+        computeRevenueV2(gEpochRevenueData);
+
 
         // Get revenue donation data by calling contract GQMPROP::GetRevenueDonation()
         QpiContextUserFunctionCall qpiContext(GQMPROP::__contract_index);
@@ -5374,7 +5464,7 @@ static void updateVotesCount(unsigned int& tickNumberOfComputors, unsigned int& 
                 KangarooTwelve(saltedData, 32 + sizeof(resourceTestingDigest), &saltedDigest, sizeof(resourceTestingDigest));
                 // ignore verify saltedResourceTestingDigest on MAINNET
                 bool isSaltedResourceTestingDigestValid = true;
-                isSaltedResourceTestingDigestValid = tick->saltedResourceTestingDigest == saltedDigest.m256i_u32[0];
+                //isSaltedResourceTestingDigestValid = tick->saltedResourceTestingDigest == saltedDigest.m256i_u32[0];
                 if (isSaltedResourceTestingDigestValid)
                 {
                     saltedData[1] = etalonTick.saltedSpectrumDigest;
@@ -6258,6 +6348,8 @@ static void tickProcessor(void*, unsigned long long processorNumber)
 
                                     // Save the file of revenue. This blocking save can be called from any thread
                                     saveRevenueComponents(NULL);
+                                    // Revenue v2 data
+                                    asyncSave(REVENUE_DATA_END_OF_EPOCH_FILE_NAME, sizeof(gEpochRevenueData), (unsigned char*)&gEpochRevenueData);
 
                                     // Reorder futureComputors so requalifying computors keep their index
                                     // This is needed for correct execution fee reporting across epoch boundaries
@@ -6732,9 +6824,10 @@ static bool initialize()
                 getSubseed(customSeeds[i], subseed.m256i_u8);
                 getPrivateKey(subseed.m256i_u8, privateKey.m256i_u8);
                 getPublicKey(privateKey.m256i_u8, publicKey.m256i_u8);
+                long long currentAmount = energy(::spectrumIndex(publicKey));
                 increaseEnergy(publicKey, 10'000'000'000, false);
 
-                ASSERT(energy(::spectrumIndex(publicKey)) == 10'000'000'000);
+                ASSERT(energy(::spectrumIndex(publicKey)) == (10'000'000'000 + currentAmount));
             }
 #endif
 
@@ -6808,6 +6901,15 @@ static bool initialize()
             if (!loadContractExecFeeFiles() && (!canObmitLoadNodeState))
                 return false;
 #endif
+
+#ifdef INCLUDE_CONTRACT_TEST_EXAMPLES
+            // fill execution fee reserves for test contracts
+            setContractFeeReserve(TESTEXA_CONTRACT_INDEX, 100000000000);
+            setContractFeeReserve(TESTEXB_CONTRACT_INDEX, 100000000000);
+            setContractFeeReserve(TESTEXC_CONTRACT_INDEX, 100000000000);
+            setContractFeeReserve(TESTEXD_CONTRACT_INDEX, 100000000000);
+#endif
+
             m256i computerDigest;
             {
                 setText(message, L"Computer digest = ");
@@ -8942,7 +9044,7 @@ void processArgs(int argc, const char* argv[]) {
     }
 }
 
-#ifdef __linux__
+#if defined(__linux__) && !defined(NO_RPC)
 void watchAndCheckin()
 {
     // init start time
@@ -9006,8 +9108,8 @@ int main(int argc, const char* argv[]) {
     logColorToScreen("INFO", "================== ~~~~~~~~~~~~~~~ ==================\n");
 
     Overload::initializeUefi();
+#if defined(__linux__) && !defined(NO_RPC)
     QubicHttpServer::start();
-#ifdef __linux__
     watchAndCheckin();
 #endif
     auto status = (int)efi_main(ih, st);

@@ -380,7 +380,7 @@ namespace QPI
 	{
 		// Select type for storage (sint64 if scalar votes are supported, uint8 otherwise).
 		static constexpr bool supportScalarVotes = ProposalDataType::supportScalarVotes;
-		typedef __VoteStorageTypeSelector<supportScalarVotes>::type VoteStorageType;
+		typedef typename __VoteStorageTypeSelector<supportScalarVotes>::type VoteStorageType;
 
 		// Vote storage
 		VoteStorageType votes[numOfVotes];
