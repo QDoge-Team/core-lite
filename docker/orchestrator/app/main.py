@@ -418,6 +418,32 @@ class Orchestrator:
             except asyncio.TimeoutError:
                 pass
 
+    async def _handle_state_incompatible(self) -> None:
+        """Recovery handler for STATE_INCOMPATIBLE.
+
+        Called by the watchdog when local state files are incompatible
+        with the current binary (e.g. contract state layout changed
+        across epochs).  Deletes local epoch files so the normal startup
+        flow re-downloads fresh ones.
+        """
+        epoch = self._state_manager.get_local_epoch()
+        if epoch is not None:
+            logger.warning(
+                f"Removing local state files for epoch {epoch} "
+                "(state incompatible)"
+            )
+            self._state_manager.delete_epoch_files(epoch)
+
+        # Re-discover epoch and download fresh files
+        epoch_info = await self._discover_epoch()
+        await self._ensure_state_files(epoch_info)
+
+        # Rebuild args and restart
+        qubic_args = self._build_qubic_args(epoch_info)
+        self._watchdog._qubic_args = qubic_args
+        await self._process_manager.start(qubic_args)
+        await self._wait_for_node_api()
+
     def _build_qubic_args(self, epoch_info: EpochInfo) -> list[str]:
         """Step 7: Build CLI arguments for the Qubic binary."""
         args = self._config.build_qubic_args()
@@ -471,6 +497,7 @@ class Orchestrator:
             qubic_args=qubic_args,
             epoch_service=self._epoch_service,
             local_version=self._local_version,
+            on_state_incompatible=self._handle_state_incompatible,
         )
         self._tasks.append(
             asyncio.create_task(

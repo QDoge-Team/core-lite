@@ -59,6 +59,8 @@ class WatchdogConfig(BaseModel):
     crash_restart_delay_seconds: int = 10
     epoch_api_poll_seconds: int = 300
     epoch_behind_restart_polls: int = 2
+    rapid_fail_threshold_seconds: int = 120
+    rapid_fail_count_for_incompatible: int = 2
 
 
 class SourceConfig(BaseModel):

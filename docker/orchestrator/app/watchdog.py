@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
+from typing import Optional
 
 from app.alerting import AlertManager
 from app.config import WatchdogConfig
@@ -29,6 +31,7 @@ class Watchdog:
         qubic_args: list[str],
         epoch_service: EpochService | None = None,
         local_version: tuple[int, int] | None = None,
+        on_state_incompatible: Optional[Callable[[], Awaitable[None]]] = None,
     ) -> None:
         self._config = config
         self._node_client = node_client
@@ -37,6 +40,7 @@ class Watchdog:
         self._qubic_args = qubic_args
         self._epoch_service = epoch_service
         self._local_version = local_version
+        self._on_state_incompatible = on_state_incompatible
         self._state = NodeState(health=NodeHealth.STARTING)
         self._state.last_tick_change_time = time.monotonic()
         self._snapshot_save_start_time: float = 0.0
@@ -51,6 +55,8 @@ class Watchdog:
         # recovery, escalate to a full restart.
         self._first_peer_reset_time: float | None = None
         self._last_peer_reset_time: float = 0
+        # STATE_INCOMPATIBLE detection: count rapid failures after restart
+        self._rapid_fail_count: int = 0
 
     @property
     def state(self) -> NodeState:
@@ -105,16 +111,18 @@ class Watchdog:
                         f"Health state changed: {prev_health.value} -> {health.value}"
                     )
 
-                # Reset peer-reset tracking when node recovers
+                # Reset peer-reset and rapid-fail tracking when node recovers
                 if health == NodeHealth.HEALTHY:
                     self._first_peer_reset_time = None
                     self._last_peer_reset_time = 0
+                    self._rapid_fail_count = 0
 
                 if health not in (
                     NodeHealth.HEALTHY,
                     NodeHealth.STARTING,
                     NodeHealth.SAVING_SNAPSHOT,
                     NodeHealth.VERSION_INCOMPATIBLE,
+                    NodeHealth.STATE_INCOMPATIBLE,
                 ):
                     await self._handle_unhealthy(health, shutdown_event)
 
@@ -412,6 +420,38 @@ class Watchdog:
                     "exhausted, escalating to restart"
                 )
 
+            # Check for rapid failure pattern (STATE_INCOMPATIBLE detection).
+            # If the node keeps becoming stuck/crashed shortly after each
+            # restart, the local state files are likely incompatible with the
+            # binary (e.g. contract state layout changed across epochs).
+            if (
+                health in (NodeHealth.STUCK, NodeHealth.CRASHED)
+                and self._state.restart_count > 0
+            ):
+                time_since_restart = (
+                    time.monotonic() - self._state.last_restart_time
+                )
+                if (
+                    time_since_restart
+                    < self._config.rapid_fail_threshold_seconds
+                ):
+                    self._rapid_fail_count += 1
+                    logger.warning(
+                        f"Rapid failure detected "
+                        f"({self._rapid_fail_count}/"
+                        f"{self._config.rapid_fail_count_for_incompatible}): "
+                        f"node became {health.value} "
+                        f"{time_since_restart:.0f}s after restart"
+                    )
+                    if (
+                        self._rapid_fail_count
+                        >= self._config.rapid_fail_count_for_incompatible
+                    ):
+                        await self._handle_state_incompatible(
+                            shutdown_event
+                        )
+                        return
+
             await self._alert_manager.send_alert(
                 "warning",
                 f"node_{health.value}",
@@ -423,6 +463,55 @@ class Watchdog:
             )
             if not shutdown_event.is_set():
                 await self._do_restart(health.value, shutdown_event)
+
+    async def _handle_state_incompatible(
+        self, shutdown_event: asyncio.Event
+    ) -> None:
+        """Handle state incompatibility by cleaning local files and restarting.
+
+        When the node repeatedly fails quickly after restart, local state
+        files are likely incompatible with the current binary.  The
+        recovery callback (provided by the orchestrator) stops the node,
+        deletes the local epoch files, and restarts through the normal
+        startup flow which re-downloads fresh files.
+        """
+        tick_info = self._state.last_tick_info
+        epoch = tick_info.epoch if tick_info else 0
+
+        logger.error(
+            f"State files appear incompatible with current epoch {epoch} "
+            f"(rapid_fail_count={self._rapid_fail_count})"
+        )
+        self._state.health = NodeHealth.STATE_INCOMPATIBLE
+
+        await self._alert_manager.send_alert(
+            "critical",
+            "state_incompatible",
+            {
+                "epoch": epoch,
+                "rapid_fail_count": self._rapid_fail_count,
+                "restart_count": self._state.restart_count,
+            },
+        )
+
+        if self._on_state_incompatible and not shutdown_event.is_set():
+            await self._process_manager.stop()
+            await self._on_state_incompatible()
+            # Reset tracking after recovery
+            self._rapid_fail_count = 0
+            self._state.restart_count = 0
+            self._state.health = NodeHealth.STARTING
+            self._state.consecutive_stuck_polls = 0
+            self._misalignment_start_time = None
+            self._misalignment_start_tick = None
+            self._first_peer_reset_time = None
+            self._last_peer_reset_time = 0
+            self._state.last_tick_change_time = time.monotonic()
+        else:
+            logger.error(
+                "No state_incompatible handler configured, "
+                "manual intervention required"
+            )
 
     async def _do_restart(
         self, reason: str, shutdown_event: asyncio.Event

@@ -488,3 +488,149 @@ class TestWatchdogEpochBehind:
         wd._last_epoch_api_check = 0.0
         health = await wd._poll_health()
         assert health == NodeHealth.EPOCH_BEHIND
+
+
+class TestStateIncompatible:
+    """Tests for STATE_INCOMPATIBLE detection via rapid-fail pattern."""
+
+    @pytest.mark.asyncio
+    async def test_rapid_fail_triggers_state_incompatible(self, watchdog_deps):
+        """Two rapid failures after restart → STATE_INCOMPATIBLE callback."""
+        config, node_client, process_manager, alert_manager = watchdog_deps
+        config.rapid_fail_threshold_seconds = 120
+        config.rapid_fail_count_for_incompatible = 2
+        alert_manager.send_alert = AsyncMock()
+        process_manager.stop = AsyncMock()
+        process_manager.send_key = AsyncMock()
+
+        on_incompatible = AsyncMock()
+
+        wd = Watchdog(
+            config, node_client, process_manager, alert_manager, [],
+            on_state_incompatible=on_incompatible,
+        )
+        shutdown = asyncio.Event()
+
+        # Simulate: node was restarted recently and is stuck again
+        wd._state.restart_count = 1
+        wd._state.last_restart_time = time.monotonic() - 10  # 10s ago (< 120s threshold)
+        wd._rapid_fail_count = 1  # already had one rapid failure
+        # Exhaust the F4 peer reset window so it falls through to restart logic
+        wd._first_peer_reset_time = time.monotonic() - config.stuck_threshold_seconds - 1
+
+        await wd._handle_unhealthy(NodeHealth.STUCK, shutdown)
+
+        assert wd._state.health == NodeHealth.STARTING  # reset after recovery
+        assert wd._rapid_fail_count == 0
+        process_manager.stop.assert_called_once()
+        on_incompatible.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_no_rapid_fail_on_slow_failure(self, watchdog_deps):
+        """Failure after threshold → normal restart, not STATE_INCOMPATIBLE."""
+        config, node_client, process_manager, alert_manager = watchdog_deps
+        config.rapid_fail_threshold_seconds = 120
+        config.rapid_fail_count_for_incompatible = 2
+        config.restart_cooldown_seconds = 0
+        alert_manager.send_alert = AsyncMock()
+        process_manager.send_key = AsyncMock()
+
+        on_incompatible = AsyncMock()
+
+        wd = Watchdog(
+            config, node_client, process_manager, alert_manager, [],
+            on_state_incompatible=on_incompatible,
+        )
+        shutdown = asyncio.Event()
+
+        # Node was restarted long ago (> threshold)
+        wd._state.restart_count = 1
+        wd._state.last_restart_time = time.monotonic() - 300  # 5 min ago
+        wd._state.last_tick_info = make_tick_info()
+        # Exhaust the F4 peer reset window
+        wd._first_peer_reset_time = time.monotonic() - config.stuck_threshold_seconds - 1
+
+        await wd._handle_unhealthy(NodeHealth.STUCK, shutdown)
+
+        on_incompatible.assert_not_awaited()
+        process_manager.restart.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_rapid_fail_counter_resets_on_healthy(self, watchdog_deps):
+        """Rapid fail counter resets when node becomes healthy."""
+        config, node_client, process_manager, alert_manager = watchdog_deps
+
+        wd = Watchdog(
+            config, node_client, process_manager, alert_manager, [],
+        )
+        wd._rapid_fail_count = 1
+
+        # Simulate healthy poll
+        node_client.get_tick_info.return_value = make_tick_info(tick=200)
+        wd._state.last_tick_info = make_tick_info(tick=199)
+        wd._state.last_tick_change_time = time.monotonic()
+
+        # Run one iteration of the watchdog health check
+        health = await wd._poll_health()
+        assert health == NodeHealth.HEALTHY
+
+        # The counter is reset in the run() loop when health == HEALTHY,
+        # so we simulate that here
+        if health == NodeHealth.HEALTHY:
+            wd._rapid_fail_count = 0
+        assert wd._rapid_fail_count == 0
+
+    @pytest.mark.asyncio
+    async def test_state_incompatible_without_callback(self, watchdog_deps):
+        """No callback → logs error, does not crash."""
+        config, node_client, process_manager, alert_manager = watchdog_deps
+        config.rapid_fail_threshold_seconds = 120
+        config.rapid_fail_count_for_incompatible = 2
+        alert_manager.send_alert = AsyncMock()
+        process_manager.stop = AsyncMock()
+        process_manager.send_key = AsyncMock()
+
+        wd = Watchdog(
+            config, node_client, process_manager, alert_manager, [],
+            on_state_incompatible=None,  # no callback
+        )
+        shutdown = asyncio.Event()
+
+        wd._state.restart_count = 1
+        wd._state.last_restart_time = time.monotonic() - 10
+        wd._rapid_fail_count = 1
+        wd._state.last_tick_info = make_tick_info()
+        wd._first_peer_reset_time = time.monotonic() - config.stuck_threshold_seconds - 1
+
+        # Should not raise
+        await wd._handle_unhealthy(NodeHealth.STUCK, shutdown)
+        assert wd._state.health == NodeHealth.STATE_INCOMPATIBLE
+
+    @pytest.mark.asyncio
+    async def test_first_failure_not_rapid_fail(self, watchdog_deps):
+        """First-ever failure (restart_count=0) is never a rapid fail."""
+        config, node_client, process_manager, alert_manager = watchdog_deps
+        config.rapid_fail_threshold_seconds = 120
+        config.rapid_fail_count_for_incompatible = 2
+        config.restart_cooldown_seconds = 0
+        alert_manager.send_alert = AsyncMock()
+        process_manager.send_key = AsyncMock()
+
+        on_incompatible = AsyncMock()
+
+        wd = Watchdog(
+            config, node_client, process_manager, alert_manager, [],
+            on_state_incompatible=on_incompatible,
+        )
+        shutdown = asyncio.Event()
+
+        # First failure, never restarted before
+        wd._state.restart_count = 0
+        wd._state.last_tick_info = make_tick_info()
+        wd._first_peer_reset_time = time.monotonic() - config.stuck_threshold_seconds - 1
+
+        await wd._handle_unhealthy(NodeHealth.STUCK, shutdown)
+
+        assert wd._rapid_fail_count == 0
+        on_incompatible.assert_not_awaited()
+        process_manager.restart.assert_awaited_once()

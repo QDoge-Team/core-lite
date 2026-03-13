@@ -867,6 +867,50 @@ class StateManager:
 
         return chunk_files, total_size
 
+    def delete_epoch_files(self, epoch: int) -> None:
+        """Remove all state files for a specific epoch.
+
+        This is used for STATE_INCOMPATIBLE recovery: when local state
+        files are incompatible with the new binary (e.g. contract state
+        layout changed), delete them so the orchestrator re-downloads
+        fresh files on next startup.
+        """
+        deleted = 0
+
+        # Delete epoch-numbered state files (spectrum.205, contract0001.205, etc.)
+        for path in list(self._data_dir.iterdir()):
+            if not path.is_file():
+                continue
+            ext = path.suffix.lstrip(".")
+            try:
+                file_epoch = int(ext)
+            except ValueError:
+                continue
+            if file_epoch == epoch:
+                logger.info(f"Deleting state file: {path.name}")
+                path.unlink()
+                deleted += 1
+
+        # Delete snapshot directory (ep205/)
+        for name in [f"ep{epoch}", "ep"]:
+            d = self._data_dir / name
+            if d.is_dir():
+                logger.info(f"Deleting snapshot dir: {d.name}")
+                shutil.rmtree(d)
+                deleted += 1
+
+        # Delete page file directories for this epoch (td00data205/, etc.)
+        for d in list(self._data_dir.iterdir()):
+            if not d.is_dir() or d.name.startswith("ep"):
+                continue
+            match = re.search(r"(\d+)$", d.name)
+            if match and int(match.group(1)) == epoch:
+                logger.info(f"Deleting page dir: {d.name}")
+                shutil.rmtree(d)
+                deleted += 1
+
+        logger.info(f"Deleted {deleted} items for epoch {epoch}")
+
     def cleanup_old_epochs(self, current_epoch: int, keep: int = 0) -> None:
         """Remove state files, snapshot dirs, and page dirs from old epochs."""
         for path in self._data_dir.iterdir():

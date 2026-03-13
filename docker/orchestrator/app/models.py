@@ -20,6 +20,7 @@ class NodeHealth(str, Enum):
     SAVING_SNAPSHOT = "saving_snapshot"
     VERSION_INCOMPATIBLE = "version_incompatible"
     EPOCH_BEHIND = "epoch_behind"
+    STATE_INCOMPATIBLE = "state_incompatible"
 
 
 @dataclass

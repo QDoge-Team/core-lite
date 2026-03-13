@@ -310,3 +310,46 @@ class TestStateManager:
         assert checksum == (
             "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
         )
+
+    def test_delete_epoch_files(self, tmp_data_dir):
+        """delete_epoch_files removes all state for the given epoch only."""
+        # Create files for epoch 198 and 199
+        (tmp_data_dir / "spectrum.198").write_text("old")
+        (tmp_data_dir / "universe.198").write_text("old")
+        (tmp_data_dir / "contract0001.198").write_text("old")
+        (tmp_data_dir / "spectrum.199").write_text("new")
+        (tmp_data_dir / "universe.199").write_text("new")
+        (tmp_data_dir / "system").write_text("system")
+
+        ep198 = tmp_data_dir / "ep198"
+        ep198.mkdir()
+        (ep198 / "system.snp").write_text("snp")
+
+        ep199 = tmp_data_dir / "ep199"
+        ep199.mkdir()
+        (ep199 / "system.snp").write_text("snp")
+
+        pg198 = tmp_data_dir / "td00data198"
+        pg198.mkdir()
+        (pg198 / "page.pg").write_bytes(b"\x00")
+
+        pg199 = tmp_data_dir / "td00data199"
+        pg199.mkdir()
+        (pg199 / "page.pg").write_bytes(b"\x00")
+
+        sm = StateManager(tmp_data_dir, MockDownloader())
+        sm.delete_epoch_files(198)
+
+        # Epoch 198 files are gone
+        assert not (tmp_data_dir / "spectrum.198").exists()
+        assert not (tmp_data_dir / "universe.198").exists()
+        assert not (tmp_data_dir / "contract0001.198").exists()
+        assert not ep198.exists()
+        assert not pg198.exists()
+
+        # Epoch 199 and non-epoch files are untouched
+        assert (tmp_data_dir / "spectrum.199").exists()
+        assert (tmp_data_dir / "universe.199").exists()
+        assert (tmp_data_dir / "system").exists()
+        assert ep199.exists()
+        assert pg199.exists()
